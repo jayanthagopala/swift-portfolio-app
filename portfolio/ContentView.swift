@@ -8,6 +8,7 @@
 import SwiftUI
 import Foundation
 import Combine
+import UIKit
 
 struct AssetCategory {
     let name: String
@@ -19,6 +20,13 @@ struct AssetCategory {
 struct ContentView: View {
     // Currency service for exchange rates
     @StateObject private var currencyService = CurrencyService.shared
+    
+    // Initialize view with saved data
+    init() {
+        // Load saved portfolio data
+        let savedData = PersistenceManager.shared.loadPortfolioData()
+        _manualEntries = State(initialValue: savedData)
+    }
     
     // Sample data - would be replaced with actual data source
     @State private var totalAssets = AssetCategory(name: "Total", value: 0)
@@ -41,6 +49,14 @@ struct ContentView: View {
     @State private var selectedDate = Date()
     @State private var isUpdatingExisting = false
     @State private var updateAmount: String = ""
+    
+    // Function to dismiss keyboard
+    @FocusState private var isInputActive: Bool
+    
+    private func hideKeyboard() {
+        isInputActive = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
     
     // Date formatter for displaying last updated time
     private let timeFormatter: DateFormatter = {
@@ -71,27 +87,76 @@ struct ContentView: View {
     // Asset types
     private let assetTypes = ["UK ISA", "UK Pot", "UK Coinbase", "India Shares", "India Smallcase", "India MF"]
     
-    // Gradients
-    private var ukGradient: LinearGradient {
-        LinearGradient(
-            gradient: Gradient(colors: [Color.blue.opacity(0.1), Color.red.opacity(0.1)]),
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+    // Gradients - enhanced for dark mode visibility
+    private var ukGradient: some View {
+        // Using environment to detect dark/light mode
+        return GeometryReader { _ in
+            ZStack {
+                // Base gradient that adapts to color scheme
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.blue.opacity(0.25),
+                        Color.purple.opacity(0.25),
+                        Color.red.opacity(0.25)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                
+                // Overlay with more vibrant accent colors
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.clear,
+                        Color.blue.opacity(0.15),
+                        Color.clear
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+        }
+        .background(Color(.systemBackground))
     }
     
-    private var indiaGradient: LinearGradient {
-        LinearGradient(
-            gradient: Gradient(colors: [Color.orange.opacity(0.1), Color.green.opacity(0.1), Color.white.opacity(0.1)]),
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+    private var indiaGradient: some View {
+        // Using environment to detect dark/light mode
+        return GeometryReader { _ in
+            ZStack {
+                // Base gradient that adapts to color scheme
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.orange.opacity(0.25),
+                        Color.green.opacity(0.25),
+                        Color.yellow.opacity(0.15)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                
+                // Overlay with more vibrant accent colors
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.clear,
+                        Color.orange.opacity(0.15),
+                        Color.clear
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+        }
+        .background(Color(.systemBackground))
     }
     
     // Store manual entries: [AssetName: [DateString: Value]]
     // For UK assets, values are in GBP
     // For India assets, values are in INR
-    @State private var manualEntries: [String: [String: Double]] = [:]
+    @State private var manualEntries: [String: [String: Double]] = [:] {
+        didSet {
+            // Save data whenever it changes
+            PersistenceManager.shared.savePortfolioData(manualEntries)
+        }
+    }
     
     // Helper to check if an asset is from India
     func isIndianAsset(_ assetName: String) -> Bool {
@@ -273,7 +338,7 @@ struct ContentView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding()
-                        .background(ukGradient)
+                        .background(ukGradient.cornerRadius(10))
                         .cornerRadius(10)
                         
                         VStack {
@@ -293,7 +358,7 @@ struct ContentView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding()
-                        .background(indiaGradient)
+                        .background(indiaGradient.cornerRadius(10))
                         .cornerRadius(10)
                     }
                     .frame(height: 160) // Fixed height for both sections
@@ -323,17 +388,17 @@ struct ContentView: View {
                     
                     AssetSummaryView(asset: ukISA)
                         .padding()
-                        .background(ukGradient)
+                        .background(ukGradient.cornerRadius(10))
                         .cornerRadius(10)
                     
                     AssetSummaryView(asset: ukPot)
                         .padding()
-                        .background(ukGradient)
+                        .background(ukGradient.cornerRadius(10))
                         .cornerRadius(10)
                     
                     AssetSummaryView(asset: ukCoinbase)
                         .padding()
-                        .background(ukGradient)
+                        .background(ukGradient.cornerRadius(10))
                         .cornerRadius(10)
                 }
                 .padding()
@@ -352,17 +417,17 @@ struct ContentView: View {
                     
                     IndianAssetSummaryView(asset: indiaShares, gbpToInrRate: currencyService.gbpToInrRate)
                         .padding()
-                        .background(indiaGradient)
+                        .background(indiaGradient.cornerRadius(10))
                         .cornerRadius(10)
                     
                     IndianAssetSummaryView(asset: indiaSmallcase, gbpToInrRate: currencyService.gbpToInrRate)
                         .padding()
-                        .background(indiaGradient)
+                        .background(indiaGradient.cornerRadius(10))
                         .cornerRadius(10)
                     
                     IndianAssetSummaryView(asset: indiaMF, gbpToInrRate: currencyService.gbpToInrRate)
                         .padding()
-                        .background(indiaGradient)
+                        .background(indiaGradient.cornerRadius(10))
                         .cornerRadius(10)
                 }
                 .padding()
@@ -447,6 +512,9 @@ struct ContentView: View {
             exchangeRateView
                 .padding(.horizontal)
                 .padding(.bottom)
+                .onTapGesture {
+                    hideKeyboard()
+                }
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("Manual Data Entry")
@@ -494,6 +562,15 @@ struct ContentView: View {
                     
                     TextField("Amount", text: $investmentAmount)
                         .keyboardType(.decimalPad)
+                        .focused($isInputActive)
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") {
+                                    hideKeyboard()
+                                }
+                            }
+                        }
                 }
                 
                 DatePicker(
@@ -556,6 +633,15 @@ struct ContentView: View {
                     
                     TextField("New Value", text: $updateAmount)
                         .keyboardType(.decimalPad)
+                        .focused($isInputActive)
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") {
+                                    hideKeyboard()
+                                }
+                            }
+                        }
                 }
                 
                 DatePicker(
