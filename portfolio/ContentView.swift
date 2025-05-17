@@ -8,6 +8,7 @@
 import SwiftUI
 import Charts
 import Foundation
+import Combine
 
 struct AssetCategory {
     let name: String
@@ -21,6 +22,9 @@ struct PortfolioDataPoint {
 }
 
 struct ContentView: View {
+    // Currency service for exchange rates
+    @StateObject private var currencyService = CurrencyService.shared
+    
     // Sample data - would be replaced with actual data source
     @State private var totalAssets = AssetCategory(name: "Total", value: 0, change: 0)
     @State private var ukAssets = AssetCategory(name: "UK Assets", value: 0, change: 0)
@@ -28,10 +32,7 @@ struct ContentView: View {
     
     // UK Detailed assets
     @State private var ukISA = AssetCategory(name: "UK ISA", value: 0, change: 0)
-    @State private var ukInvest = AssetCategory(name: "UK Invest", value: 0, change: 0)
-    @State private var ukCashISA = AssetCategory(name: "UK Cash ISA", value: 0, change: 0)
-    @State private var ukMonzoPot = AssetCategory(name: "UK Monzo Pot", value: 0, change: 0)
-    @State private var ukOakNorthPot = AssetCategory(name: "UK OakNorth Pot", value: 0, change: 0)
+    @State private var ukPot = AssetCategory(name: "UK Pot", value: 0, change: 0)
     @State private var ukCoinbase = AssetCategory(name: "UK Coinbase", value: 0, change: 0)
     
     // India Detailed assets
@@ -43,9 +44,33 @@ struct ContentView: View {
     @State private var showAddInvestmentSheet = false
     @State private var investmentAmount: String = ""
     @State private var selectedAssetType: String = "UK ISA"
-    @State private var selectedMonth: String = ""
+    @State private var selectedDate = Date()
     @State private var isUpdatingExisting = false
     @State private var updateAmount: String = ""
+    
+    // Date formatter for displaying last updated time
+    private let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
+    
+    // Date range for date picker
+    private let dateRange: ClosedRange<Date> = {
+        let calendar = Calendar.current
+        let startComponents = DateComponents(year: 2023, month: 1, day: 1)
+        let endComponents = DateComponents(year: 2026, month: 12, day: 31)
+        return calendar.date(from: startComponents)!...calendar.date(from: endComponents)!
+    }()
+    
+    // Date formatter for displaying dates
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
     
     // Portfolio growth data - sample data
     @State private var portfolioHistory: [PortfolioDataPoint] = [
@@ -59,7 +84,7 @@ struct ContentView: View {
     ]
     
     // Asset types
-    private let assetTypes = ["UK ISA", "UK Invest", "UK Cash ISA", "UK Monzo Pot", "UK OakNorth Pot", "UK Coinbase", "India Shares", "India Smallcase", "India MF"]
+    private let assetTypes = ["UK ISA", "UK Pot", "UK Coinbase", "India Shares", "India Smallcase", "India MF"]
     
     // Gradients
     private var ukGradient: LinearGradient {
@@ -78,90 +103,151 @@ struct ContentView: View {
         )
     }
     
-    // List of months for manual entry (can be extended as needed)
-    let months: [String] = [
-        "Jan 24", "Feb 24", "Mar 24", "Apr 24", "May 24", "Jun 24", "Jul 24", "Aug 24", "Sep 24", "Oct 24", "Nov 24", "Dec 24",
-        "Jan 25", "Feb 25", "Mar 25", "Apr 25", "May 25"
-    ]
-    
-    // Store manual entries: [AssetName: [Month: Value]]
+    // Store manual entries: [AssetName: [DateString: Value]]
+    // For UK assets, values are in GBP
+    // For India assets, values are in INR
     @State private var manualEntries: [String: [String: Double]] = [:]
     
-    // Helper to get the current month string in the same format as above
-    var currentMonthString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM yy"
-        let now = Date()
-        let candidate = formatter.string(from: now)
-        if months.contains(candidate) { return candidate }
-        return months.last ?? ""
+    // Helper to check if an asset is from India
+    func isIndianAsset(_ assetName: String) -> Bool {
+        return assetName.starts(with: "India")
     }
     
-    // Helper to get value for an asset for the current month (manual > 0)
-    func valueForCurrentMonth(asset: String) -> Double {
-        if let manual = manualEntries[asset]?[currentMonthString] {
+    // Helper to get the appropriate currency symbol for an asset
+    func currencySymbol(for assetName: String) -> String {
+        return isIndianAsset(assetName) ? "₹" : "£"
+    }
+    
+    // Helper to format currency value
+    func formattedCurrency(value: Double, assetName: String) -> String {
+        let currencyFormatter = NumberFormatter()
+        currencyFormatter.numberStyle = .currency
+        currencyFormatter.maximumFractionDigits = 0
+        
+        if isIndianAsset(assetName) {
+            currencyFormatter.currencySymbol = "₹"
+            return currencyFormatter.string(from: NSNumber(value: value)) ?? "₹0"
+        } else {
+            currencyFormatter.currencySymbol = "£"
+            return currencyFormatter.string(from: NSNumber(value: value)) ?? "£0"
+        }
+    }
+    
+    // Helper to convert a date to a string key
+    func dateString(from date: Date) -> String {
+        dateFormatter.string(from: date)
+    }
+    
+    // Helper to get value for an asset for the current date
+    func valueForCurrentDate(asset: String) -> Double {
+        let today = dateString(from: Date())
+        if let manual = manualEntries[asset]?[today] {
             return manual
         }
         return 0.0
     }
     
-    // Helper to get full history for an asset, using manual entries
-    func mergedHistory(for asset: String) -> [(String, Double)] {
-        var merged: [String: Double] = [:]
-        if let manual = manualEntries[asset] {
-            for (month, value) in manual { merged[month] = value }
-        }
-        // Sort by months order
-        return months.map { ($0, merged[$0] ?? 0.0) }
-    }
-    
-    // Helper to get total portfolio value per month, using manual entries
-    var mergedTotalPortfolioHistory: [(String, Double)] {
-        months.map { month in
-            let total = assetTypes.map { asset in
-                manualEntries[asset]?[month] ?? 0.0
-            }.reduce(0, +)
-            return (month, total)
-        }
-    }
-    
-    // Helper to get the latest value for an asset (from any month)
+    // Helper to get the latest value for an asset (from any date)
+    // For India assets, this returns the value in INR
     func latestValueForAsset(_ asset: String) -> Double {
         let assetEntries = manualEntries[asset] ?? [:]
         
         // If no entries, return 0
         if assetEntries.isEmpty { return 0 }
         
-        // Find the latest month that has a value
-        let monthsWithValues = assetEntries.keys.filter { months.contains($0) }
-        let sortedMonths = monthsWithValues.sorted { first, second in
-            let firstIndex = months.firstIndex(of: first) ?? -1
-            let secondIndex = months.firstIndex(of: second) ?? -1
-            return firstIndex > secondIndex
-        }
+        // Find the entries, convert string dates back to Date objects for sorting
+        let dateFormatter = self.dateFormatter
+        let sortedDates = assetEntries.keys.compactMap { key -> (Date, Double)? in
+            if let date = dateFormatter.date(from: key),
+               let value = assetEntries[key] {
+                return (date, value)
+            }
+            return nil
+        }.sorted { $0.0 > $1.0 } // Sort by date, most recent first
         
-        if let latestMonth = sortedMonths.first {
-            return assetEntries[latestMonth] ?? 0
+        if let latest = sortedDates.first {
+            return latest.1 // Return the value
         }
         
         return 0
     }
     
-    // Calculate UK assets total (sum of latest values for UK assets)
+    // Helper to get the latest value for an asset in GBP (converted if needed)
+    func latestValueInGBP(_ asset: String) -> Double {
+        let value = latestValueForAsset(asset)
+        return isIndianAsset(asset) ? value * currencyService.inrToGbpRate : value
+    }
+    
+    // Helper to get all values for an asset with dates
+    func historyForAsset(_ asset: String) -> [(Date, Double)] {
+        let assetEntries = manualEntries[asset] ?? [:]
+        let dateFormatter = self.dateFormatter
+        
+        return assetEntries.compactMap { key, value in
+            if let date = dateFormatter.date(from: key) {
+                return (date, value)
+            }
+            return nil
+        }.sorted { $0.0 < $1.0 } // Sort by date, oldest first
+    }
+    
+    // Calculate UK assets total (sum of latest values for UK assets in GBP)
     var ukAssetsTotal: Double {
         let ukAssetTypes = assetTypes.filter { $0.starts(with: "UK") }
-        return ukAssetTypes.reduce(0) { $0 + latestValueForAsset($1) }
+        return ukAssetTypes.reduce(0) { $0 + latestValueInGBP($1) }
     }
     
-    // Calculate India assets total (sum of latest values for India assets)
+    // Calculate India assets total (sum of latest values for India assets converted to GBP)
     var indiaAssetsTotal: Double {
         let indiaAssetTypes = assetTypes.filter { $0.starts(with: "India") }
-        return indiaAssetTypes.reduce(0) { $0 + latestValueForAsset($1) }
+        return indiaAssetTypes.reduce(0) { $0 + latestValueInGBP($1) }
     }
     
-    // Calculate overall total
+    // Calculate overall total in GBP
     var overallTotal: Double {
         return ukAssetsTotal + indiaAssetsTotal
+    }
+    
+    // Helper to update portfolio history based on asset entries
+    func updatePortfolioHistory() {
+        // Create a map of date to total value across all assets (in GBP)
+        var dateToTotalValue: [Date: Double] = [:]
+        
+        // For each asset, get its history and add values to the corresponding dates
+        for assetType in assetTypes {
+            let history = historyForAsset(assetType)
+            for (date, value) in history {
+                let currentTotal = dateToTotalValue[date] ?? 0
+                // Convert to GBP if it's an Indian asset
+                let valueInGBP = isIndianAsset(assetType) ? value * currencyService.inrToGbpRate : value
+                dateToTotalValue[date] = currentTotal + valueInGBP
+            }
+        }
+        
+        // Sort dates
+        let sortedDates = dateToTotalValue.keys.sorted()
+        
+        // If we have enough data points, update the portfolio history
+        if sortedDates.count >= 2 {
+            // Take the last 7 dates or fewer if we don't have 7
+            let recentDates = Array(sortedDates.suffix(min(7, sortedDates.count)))
+            
+            // Update the portfolio history with these dates and values
+            var newHistory: [PortfolioDataPoint] = []
+            for date in recentDates {
+                let value = dateToTotalValue[date] ?? 0
+                newHistory.append(PortfolioDataPoint(date: date, value: value))
+            }
+            
+            // If we have fewer than 7 data points, pad with the existing points
+            if newHistory.count < 7 {
+                let remainingCount = 7 - newHistory.count
+                let existingFirst = Array(portfolioHistory.prefix(remainingCount))
+                newHistory = existingFirst + newHistory
+            }
+            
+            portfolioHistory = newHistory
+        }
     }
     
     // Helper to update UK and India assets with latest totals
@@ -170,6 +256,18 @@ struct ContentView: View {
         totalAssets = AssetCategory(name: "Total", value: overallTotal, change: 0)
         ukAssets = AssetCategory(name: "UK Assets", value: ukAssetsTotal, change: 0)
         indiaAssets = AssetCategory(name: "India Assets", value: indiaAssetsTotal, change: 0)
+        
+        // Update individual asset categories with their latest values (in native currency)
+        ukISA = AssetCategory(name: "UK ISA", value: latestValueForAsset("UK ISA"), change: 0)
+        ukPot = AssetCategory(name: "UK Pot", value: latestValueForAsset("UK Pot"), change: 0)
+        ukCoinbase = AssetCategory(name: "UK Coinbase", value: latestValueForAsset("UK Coinbase"), change: 0)
+        
+        indiaShares = AssetCategory(name: "India Shares", value: latestValueForAsset("India Shares"), change: 0)
+        indiaSmallcase = AssetCategory(name: "India Smallcase", value: latestValueForAsset("India Smallcase"), change: 0)
+        indiaMF = AssetCategory(name: "India MF", value: latestValueForAsset("India MF"), change: 0)
+        
+        // Update portfolio history
+        updatePortfolioHistory()
     }
     
     var body: some View {
@@ -180,17 +278,21 @@ struct ContentView: View {
                 }
                 .onAppear {
                     updateTotals()
-                }
-            
-            portfolioGrowthView
-                .tabItem {
-                    Label("Growth", systemImage: "chart.line.uptrend.xyaxis")
+                    
+                    // Check if exchange rates need refreshing
+                    if currencyService.ratesNeedRefresh {
+                        currencyService.fetchExchangeRates()
+                    }
                 }
             
             addInvestmentView
                 .tabItem {
                     Label("Add", systemImage: "plus.circle")
                 }
+        }
+        .onChange(of: currencyService.gbpToInrRate) { _ in
+            // Recalculate totals whenever the exchange rate changes
+            updateTotals()
         }
     }
     
@@ -199,7 +301,18 @@ struct ContentView: View {
         ScrollView {
             VStack {
                 VStack(spacing: 20) {
-                    AssetSummaryView(asset: totalAssets)
+                    HStack {
+                        Text("Total")
+                            .font(.headline)
+                        
+                        Spacer()
+                        
+                        VStack(alignment: .trailing) {
+                            Text("£\(Int(totalAssets.value))")
+                                .font(.title)
+                                .fontWeight(.bold)
+                        }
+                    }
                     
                     Divider()
                     
@@ -215,15 +328,6 @@ struct ContentView: View {
                                 .padding(.bottom, 4)
                             
                             Spacer()
-                            
-                            HStack(spacing: 4) {
-                                Image(systemName: ukAssets.change >= 0 ? "arrow.up" : "arrow.down")
-                                    .foregroundColor(ukAssets.change >= 0 ? .green : .red)
-                                
-                                Text("£\(Int(abs(ukAssets.change)))")
-                                    .font(.subheadline)
-                                    .foregroundColor(ukAssets.change >= 0 ? .green : .red)
-                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding()
@@ -239,27 +343,11 @@ struct ContentView: View {
                                 .font(.title3)
                                 .fontWeight(.semibold)
                             
-                            Text("₹\(Int(indiaAssets.value * 104.5))")
+                            Text("₹\(Int(indiaAssets.value * currencyService.gbpToInrRate))")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
                             Spacer()
-                            
-                            HStack(spacing: 4) {
-                                Image(systemName: indiaAssets.change >= 0 ? "arrow.up" : "arrow.down")
-                                    .foregroundColor(indiaAssets.change >= 0 ? .green : .red)
-                                
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text("£\(Int(abs(indiaAssets.change)))")
-                                        .font(.subheadline)
-                                        .foregroundColor(indiaAssets.change >= 0 ? .green : .red)
-                                    
-                                    Text("₹\(Int(abs(indiaAssets.change) * 104.5))")
-                                        .font(.caption2)
-                                        .foregroundColor(indiaAssets.change >= 0 ? .green : .red)
-                                        .opacity(0.8)
-                                }
-                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding()
@@ -273,6 +361,11 @@ struct ContentView: View {
                 .cornerRadius(12)
                 .shadow(radius: 2)
                 .padding()
+                
+                Text("All values based on your latest manual entries")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom)
                 
                 Divider()
                     .padding(.horizontal)
@@ -291,22 +384,7 @@ struct ContentView: View {
                         .background(ukGradient)
                         .cornerRadius(10)
                     
-                    AssetSummaryView(asset: ukInvest)
-                        .padding()
-                        .background(ukGradient)
-                        .cornerRadius(10)
-                    
-                    AssetSummaryView(asset: ukCashISA)
-                        .padding()
-                        .background(ukGradient)
-                        .cornerRadius(10)
-                    
-                    AssetSummaryView(asset: ukMonzoPot)
-                        .padding()
-                        .background(ukGradient)
-                        .cornerRadius(10)
-                    
-                    AssetSummaryView(asset: ukOakNorthPot)
+                    AssetSummaryView(asset: ukPot)
                         .padding()
                         .background(ukGradient)
                         .cornerRadius(10)
@@ -330,17 +408,17 @@ struct ContentView: View {
                         .padding(.horizontal)
                         .padding(.top, 5)
                     
-                    AssetSummaryView(asset: indiaShares)
+                    IndianAssetSummaryView(asset: indiaShares, gbpToInrRate: currencyService.gbpToInrRate)
                         .padding()
                         .background(indiaGradient)
                         .cornerRadius(10)
                     
-                    AssetSummaryView(asset: indiaSmallcase)
+                    IndianAssetSummaryView(asset: indiaSmallcase, gbpToInrRate: currencyService.gbpToInrRate)
                         .padding()
                         .background(indiaGradient)
                         .cornerRadius(10)
                     
-                    AssetSummaryView(asset: indiaMF)
+                    IndianAssetSummaryView(asset: indiaMF, gbpToInrRate: currencyService.gbpToInrRate)
                         .padding()
                         .background(indiaGradient)
                         .cornerRadius(10)
@@ -354,52 +432,66 @@ struct ContentView: View {
         }
     }
     
-    // Portfolio Growth View
-    var portfolioGrowthView: some View {
-        VStack {
-            Text("Portfolio Growth")
-                .font(.title)
-                .fontWeight(.bold)
-                .padding()
-            
-            Chart {
-                ForEach(portfolioHistory, id: \.date) { dataPoint in
-                    LineMark(
-                        x: .value("Date", dataPoint.date),
-                        y: .value("Value", dataPoint.value)
-                    )
-                    .foregroundStyle(Color.blue.gradient)
+    // Exchange rate display view
+    var exchangeRateView: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Exchange Rate:")
+                        .font(.headline)
+                        .fontWeight(.semibold)
                     
-                    AreaMark(
-                        x: .value("Date", dataPoint.date),
-                        y: .value("Value", dataPoint.value)
-                    )
-                    .foregroundStyle(
-                        LinearGradient(
-                            gradient: Gradient(colors: [.blue.opacity(0.3), .blue.opacity(0.1)]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    
-                    PointMark(
-                        x: .value("Date", dataPoint.date),
-                        y: .value("Value", dataPoint.value)
-                    )
-                    .foregroundStyle(.blue)
+                    Text("£1 = ₹\(String(format: "%.2f", currencyService.gbpToInrRate))")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                }
+                
+                if let lastUpdated = currencyService.lastUpdated {
+                    Text("Last updated: \(timeFormatter.string(from: lastUpdated))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Using default exchange rate")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
-            .frame(height: 300)
-            .padding()
-            
-            Text("6 Month Growth: £\(Int(portfolioHistory.last!.value - portfolioHistory.first!.value))")
-                .fontWeight(.semibold)
-                .padding()
             
             Spacer()
+            
+            Button(action: {
+                // Refresh exchange rate
+                currencyService.fetchExchangeRates()
+            }) {
+                HStack {
+                    Text("Refresh")
+                        .font(.callout)
+                    
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14))
+                }
+                .padding(8)
+                .background(Color.blue.opacity(0.1))
+                .cornerRadius(8)
+            }
+            .disabled(currencyService.isLoading)
+            .overlay(
+                Group {
+                    if currencyService.isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .scaleEffect(0.7)
+                    }
+                }
+            )
         }
         .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 1)
     }
+    
+
     
     // Add Investment View
     var addInvestmentView: some View {
@@ -408,6 +500,27 @@ struct ContentView: View {
                 .font(.title)
                 .fontWeight(.bold)
                 .padding()
+            
+            // Exchange rate indicator for reference
+            exchangeRateView
+                .padding(.horizontal)
+                .padding(.bottom)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Manual Data Entry")
+                    .font(.headline)
+                
+                Text("Asset values are currently entered manually. Enter the latest values for your assets below.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text("Note: UK assets are entered in £ (GBP) and Indian assets in ₹ (INR)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 10)
             
             Picker("Action", selection: $isUpdatingExisting) {
                 Text("Add New").tag(false)
@@ -433,33 +546,56 @@ struct ContentView: View {
                     }
                 }
                 
-                TextField("Amount", text: $investmentAmount)
-                    .keyboardType(.decimalPad)
-                
-                Picker("Month", selection: $selectedMonth) {
-                    ForEach(months, id: \.self) { month in
-                        Text(month)
-                    }
+                HStack {
+                    Text(isIndianAsset(selectedAssetType) ? "₹" : "£")
+                        .foregroundColor(.secondary)
+                    
+                    TextField("Amount", text: $investmentAmount)
+                        .keyboardType(.decimalPad)
                 }
-                .onAppear {
-                    if selectedMonth.isEmpty {
-                        selectedMonth = currentMonthString
+                
+                DatePicker(
+                    "Date",
+                    selection: $selectedDate,
+                    in: dateRange,
+                    displayedComponents: .date
+                )
+                
+                // Show informational text with conversion rate if Indian asset
+                if isIndianAsset(selectedAssetType) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enter amount in Indian Rupees (₹)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        if let amount = Double(investmentAmount), amount > 0 {
+                            let gbpValue = amount * currencyService.inrToGbpRate
+                            Text("Equivalent to approximately £\(Int(gbpValue)) GBP")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
                     }
+                } else {
+                    Text("Enter amount in British Pounds (£)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             
-            Button(action: addInvestment) {
-                Text("Add Investment")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+            Section(footer: Text("All totals are calculated based on the latest value entered for each asset. Indian values are converted to GBP for portfolio totals.")) {
+                Button(action: addInvestment) {
+                    Text("Add Investment")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .padding()
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
-            .padding()
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
         }
     }
     
@@ -472,77 +608,112 @@ struct ContentView: View {
                     }
                 }
                 
-                TextField("New Value", text: $updateAmount)
-                    .keyboardType(.decimalPad)
+                HStack {
+                    Text(isIndianAsset(selectedAssetType) ? "₹" : "£")
+                        .foregroundColor(.secondary)
+                    
+                    TextField("New Value", text: $updateAmount)
+                        .keyboardType(.decimalPad)
+                }
                 
-                Picker("Month", selection: $selectedMonth) {
-                    ForEach(months, id: \.self) { month in
-                        Text(month)
+                DatePicker(
+                    "Date",
+                    selection: $selectedDate,
+                    in: dateRange,
+                    displayedComponents: .date
+                )
+                
+                // Show existing value for selected date if available
+                let dateKey = dateString(from: selectedDate)
+                if let existingValue = manualEntries[selectedAssetType]?[dateKey] {
+                    HStack {
+                        Text("Current Value:")
+                        Spacer()
+                        Text("\(isIndianAsset(selectedAssetType) ? "₹" : "£")\(Int(existingValue))")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    // If Indian asset, show the GBP equivalent
+                    if isIndianAsset(selectedAssetType) {
+                        HStack {
+                            Text("GBP Equivalent:")
+                            Spacer()
+                            Text("£\(Int(existingValue * currencyService.inrToGbpRate))")
+                                .foregroundColor(.blue)
+                        }
                     }
                 }
-                .onAppear {
-                    if selectedMonth.isEmpty {
-                        selectedMonth = currentMonthString
+                
+                // Show preview of conversion if it's an Indian asset
+                if isIndianAsset(selectedAssetType), let amount = Double(updateAmount), amount > 0 {
+                    HStack {
+                        Text("Will convert to:")
+                        Spacer()
+                        Text("£\(Int(amount * currencyService.inrToGbpRate))")
+                            .foregroundColor(.blue)
                     }
+                }
+                
+                // Show informational text
+                if isIndianAsset(selectedAssetType) {
+                    Text("Enter amount in Indian Rupees (₹)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Enter amount in British Pounds (£)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             
-            Button(action: updateInvestment) {
-                Text("Update Investment")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+            Section(footer: Text("All totals are calculated based on the latest value entered for each asset. Indian values are converted to GBP for portfolio totals.")) {
+                Button(action: updateInvestment) {
+                    Text("Update Investment")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .padding()
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
-            .padding()
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
         }
     }
     
     func addInvestment() {
-        // Update the selected asset for the selected month
+        // Update the selected asset for the selected date
         if let amount = Double(investmentAmount) {
+            let dateKey = dateString(from: selectedDate)
             var assetDict = manualEntries[selectedAssetType] ?? [:]
-            assetDict[selectedMonth] = amount
+            assetDict[dateKey] = amount
             manualEntries[selectedAssetType] = assetDict
             updateTotals()
         }
         investmentAmount = ""
         selectedAssetType = "UK ISA"
-        selectedMonth = currentMonthString
+        selectedDate = Date() // Reset to current date
     }
     
     func updateInvestment() {
-        // Update the selected asset for the selected month
+        // Update the selected asset for the selected date
         if let amount = Double(updateAmount) {
+            let dateKey = dateString(from: selectedDate)
             var assetDict = manualEntries[selectedAssetType] ?? [:]
-            assetDict[selectedMonth] = amount
+            assetDict[dateKey] = amount
             manualEntries[selectedAssetType] = assetDict
             updateTotals()
         }
         updateAmount = ""
         selectedAssetType = "UK ISA"
-        selectedMonth = currentMonthString
+        selectedDate = Date() // Reset to current date
     }
 }
 
 struct AssetSummaryView: View {
     let asset: AssetCategory
-    // Conversion rate from GBP to INR (sample rate)
-    let gbpToInrRate: Double = 104.5
-    
-    // Function to determine currency symbol based on asset name
-    func currencySymbol(for assetName: String) -> String {
-        if assetName == "ISA" || assetName == "Crypto" || assetName == "UK Assets" || assetName == "Total" {
-            return "£"
-        } else if assetName == "Smallcase" || assetName == "Mutual Funds" || assetName == "India Assets" {
-            return "₹"
-        }
-        return "£" // Default
-    }
     
     var body: some View {
         HStack {
@@ -552,44 +723,33 @@ struct AssetSummaryView: View {
             Spacer()
             
             VStack(alignment: .trailing) {
-                if asset.name == "India Assets" {
-                    Text("£\(Int(asset.value))")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    
-                    Text("₹\(Int(asset.value * gbpToInrRate))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    HStack(spacing: 4) {
-                        Image(systemName: asset.change >= 0 ? "arrow.up" : "arrow.down")
-                            .foregroundColor(asset.change >= 0 ? .green : .red)
-                        
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("£\(Int(abs(asset.change))) today")
-                                .font(.subheadline)
-                                .foregroundColor(asset.change >= 0 ? .green : .red)
-                            
-                            Text("₹\(Int(abs(asset.change) * gbpToInrRate))")
-                                .font(.caption2)
-                                .foregroundColor(asset.change >= 0 ? .green : .red)
-                                .opacity(0.8)
-                        }
-                    }
-                } else {
-                    Text("\(currencySymbol(for: asset.name))\(Int(asset.value))")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    
-                    HStack(spacing: 4) {
-                        Image(systemName: asset.change >= 0 ? "arrow.up" : "arrow.down")
-                            .foregroundColor(asset.change >= 0 ? .green : .red)
-                        
-                        Text("\(currencySymbol(for: asset.name))\(Int(abs(asset.change))) today")
-                            .font(.subheadline)
-                            .foregroundColor(asset.change >= 0 ? .green : .red)
-                    }
-                }
+                Text("£\(Int(asset.value))")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+            }
+        }
+    }
+}
+
+struct IndianAssetSummaryView: View {
+    let asset: AssetCategory
+    let gbpToInrRate: Double
+    
+    var body: some View {
+        HStack {
+            Text(asset.name)
+                .font(.headline)
+            
+            Spacer()
+            
+            VStack(alignment: .trailing) {
+                Text("₹\(Int(asset.value))")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                
+                Text("£\(Int(asset.value / gbpToInrRate))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
