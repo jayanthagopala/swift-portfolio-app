@@ -16,7 +16,20 @@ struct AssetCategory {
     let value: Double
 }
 
+// New struct for Income Entries
+struct IncomeEntry: Identifiable, Codable { // Added Codable for potential persistence
+    let id = UUID()
+    let type: String
+    let amount: Double
+    let date: Date
+}
 
+// Struct for Monthly Income Totals
+struct MonthlyIncomeTotal: Identifiable {
+    let id = UUID()
+    let month: String
+    let totalAmount: Double
+}
 
 struct ContentView: View {
     // Currency service for exchange rates
@@ -80,6 +93,13 @@ struct ContentView: View {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
+        return formatter
+    }()
+    
+    // Date formatter for displaying month and year
+    private let monthYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
         return formatter
     }()
     
@@ -158,6 +178,15 @@ struct ContentView: View {
             PersistenceManager.shared.savePortfolioData(manualEntries)
         }
     }
+
+    // Store income entries
+    @State private var incomeEntries: [IncomeEntry] = [] // Persistence to be added
+
+    // Income form state variables
+    @State private var selectedIncomeType: String = "Salary"
+    @State private var incomeAmount: String = ""
+    @State private var incomeDate = Date()
+    private let incomeTypes = ["Salary", "FatLlama", "Rent"]
     
     // Helper to check if an asset is from India
     func isIndianAsset(_ assetName: String) -> Bool {
@@ -278,12 +307,6 @@ struct ContentView: View {
         indiaMF = AssetCategory(name: "India MF", value: latestValueForAsset("India MF"))
     }
     
-    // Helper to get latest value for the current month for a specific asset
-    private func getLatestValueForCurrentMonth(asset: String) -> Double? {
-        let currentMonthKey = dateString(from: Date())
-        return manualEntries[asset]?[currentMonthKey]
-    }
-    
     var body: some View {
         TabView {
             summaryView
@@ -313,9 +336,17 @@ struct ContentView: View {
                     selectedDate = Date()
                     updateTotals()
                 }
+            
+            addIncomeView
+                .tabItem {
+                    Label("Income", systemImage: "creditcard")
+                }
         }
         .onChange(of: currencyService.gbpToInrRate) { _ in
             // Recalculate totals whenever the exchange rate changes
+            updateTotals()
+        }
+        .onAppear { // Ensure totals are updated when the view appears too
             updateTotals()
         }
     }
@@ -378,7 +409,7 @@ struct ContentView: View {
                         .background(indiaGradient.cornerRadius(10))
                         .cornerRadius(10)
                     }
-                    .frame(height: 160) // Fixed height for both sections
+                    .frame(height: 120) // Reduced height from 160 to 120
                 }
                 .padding()
                 .background(Color(.systemBackground))
@@ -936,12 +967,12 @@ struct ContentView: View {
                     Text("Change")
                         .font(.subheadline)
                         .fontWeight(.bold)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     
                     Text("%")
                         .font(.subheadline)
                         .fontWeight(.bold)
-                        .frame(width: 80)
+                        .frame(width: 80, alignment: .trailing)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -956,11 +987,11 @@ struct ContentView: View {
                         
                         Text("£\(Int(change.value))")
                             .foregroundColor(change.value >= 0 ? .green : .red)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         
                         Text(String(format: "%.1f%%", change.percentChange))
                             .foregroundColor(change.value >= 0 ? .green : .red)
-                            .frame(width: 80)
+                            .frame(width: 80, alignment: .trailing)
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -995,12 +1026,12 @@ struct ContentView: View {
                     Text("Change")
                         .font(.subheadline)
                         .fontWeight(.bold)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     
                     Text("%")
                         .font(.subheadline)
                         .fontWeight(.bold)
-                        .frame(width: 80)
+                        .frame(width: 80, alignment: .trailing)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -1015,11 +1046,11 @@ struct ContentView: View {
                         
                         Text("£\(Int(change.value))")
                             .foregroundColor(change.value >= 0 ? .green : .red)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         
                         Text(String(format: "%.1f%%", change.percentChange))
                             .foregroundColor(change.value >= 0 ? .green : .red)
-                            .frame(width: 80)
+                            .frame(width: 80, alignment: .trailing)
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -1054,12 +1085,12 @@ struct ContentView: View {
                     Text("Change (£)")
                         .font(.subheadline)
                         .fontWeight(.bold)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     
                     Text("%")
                         .font(.subheadline)
                         .fontWeight(.bold)
-                        .frame(width: 80)
+                        .frame(width: 80, alignment: .trailing)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -1074,11 +1105,11 @@ struct ContentView: View {
                         
                         Text("£\(Int(change.value))")
                             .foregroundColor(change.value >= 0 ? .green : .red)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         
                         Text(String(format: "%.1f%%", change.percentChange))
                             .foregroundColor(change.value >= 0 ? .green : .red)
-                            .frame(width: 80)
+                            .frame(width: 80, alignment: .trailing)
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -1108,17 +1139,17 @@ struct ContentView: View {
                 .onTapGesture {
                     hideKeyboard()
                 }
-            
-            // Current month values summary
+
+            // Values for Selected Month cards - MOVED HERE
             VStack(alignment: .leading, spacing: 8) {
-                Text("Latest Values for Current Month")
+                Text("Latest Values for Selected Month: \(self.monthYearFormatter.string(from: selectedDate))")
                     .font(.headline)
                     .padding(.bottom, 4)
                 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(assetTypes, id: \.self) { asset in
-                            AssetValueCard(asset: asset)
+                            AssetValueCard(asset: asset, date: selectedDate)
                         }
                     }
                     .padding(.horizontal)
@@ -1126,22 +1157,7 @@ struct ContentView: View {
                 .padding(.bottom)
             }
             .padding(.horizontal)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Manual Data Entry")
-                    .font(.headline)
-                
-                Text("Asset values are currently entered manually. Enter the latest values for your assets below.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Text("Note: UK assets are entered in £ (GBP) and Indian assets in ₹ (INR)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 10)
+            .padding(.top) // Add some spacing above this section
             
             Picker("Action", selection: $isUpdatingExisting) {
                 Text("Add New").tag(false)
@@ -1389,33 +1405,71 @@ struct ContentView: View {
         selectedDate = Date() // Reset to current date
     }
     
-    // Asset value card for current month summary
-    private func AssetValueCard(asset: String) -> some View {
-        let value = getLatestValueForCurrentMonth(asset: asset)
-        let hasValue = value != nil
+    // Helper to get latest value for a specific asset within a selected month
+    private func getLatestValueForSelectedMonth(asset: String, date: Date) -> Double? {
+        let calendar = Calendar.current
+        guard let monthInterval = calendar.dateInterval(of: .month, for: date) else {
+            return nil // Should not happen
+        }
         
+        let assetEntries = manualEntries[asset] ?? [:]
+        let dateFormatter = self.dateFormatter // Use the existing dateFormatter
+        
+        let valuesInMonth = assetEntries.compactMap { (dateString, value) -> (Date, Double)? in
+            guard let entryDate = dateFormatter.date(from: dateString) else {
+                return nil
+            }
+            // Check if the entryDate is within the selected month
+            if monthInterval.contains(entryDate) {
+                return (entryDate, value)
+            }
+            return nil
+        }
+        
+        // Sort by date, most recent first, and return the latest value
+        if let latestEntryInMonth = valuesInMonth.sorted(by: { $0.0 > $1.0 }).first {
+            return latestEntryInMonth.1
+        }
+        
+        return nil // No data for this asset in the selected month
+    }
+    
+    // Asset value card for specific date summary
+    private func AssetValueCard(asset: String, date: Date) -> some View {
+        let value = getLatestValueForSelectedMonth(asset: asset, date: date) // Use the new function
+        let hasValue = value != nil
+
         return VStack(alignment: .leading, spacing: 4) {
             Text(asset)
                 .font(.subheadline)
                 .fontWeight(.medium)
-            
+
             if let value = value {
                 Text("\(isIndianAsset(asset) ? "₹" : "£")\(Int(value))")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
-                
-                // Show equivalent in the other currency
+
+                // Show equivalent in the other currency or a placeholder for consistent height
                 if isIndianAsset(asset) {
                     Text("£\(Int(value * currencyService.inrToGbpRate))")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                } else {
+                    // Placeholder for UK assets to maintain consistent card height
+                    Text(" ") // A single space to ensure layout space is taken
+                        .font(.caption) // Match font of the INR equivalent line
+                        .opacity(0)     // Make it invisible
                 }
             } else {
-                Text("No data")
+                Text("No data for selected date") // Updated text
                     .font(.body)
                     .foregroundColor(.secondary)
                     .italic()
+                // Add a placeholder here as well if "No data" text is shorter than two lines
+                Text(" ")
+                    .font(.caption)
+                    .opacity(0)
             }
         }
         .padding(.vertical, 10)
@@ -1438,6 +1492,171 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.secondary.opacity(0.2), lineWidth: hasValue ? 0 : 1)
         )
+    }
+
+    //MARK: - Income Management
+    
+    var addIncomeView: some View {
+        NavigationView { // Added NavigationView for a title
+            VStack {
+                Text("Log Income")
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .padding()
+
+                Form {
+                    Section(header: Text("Income Details")) {
+                        Picker("Income Type", selection: $selectedIncomeType) {
+                            ForEach(incomeTypes, id: \.self) { type in
+                                Text(type)
+                            }
+                        }
+
+                        HStack {
+                            Text("£") // Assuming income is in GBP
+                                .foregroundColor(.secondary)
+                            TextField("Amount", text: $incomeAmount)
+                                .keyboardType(.decimalPad)
+                                .focused($isInputActive) // For keyboard dismissal
+                        }
+                        
+                        DatePicker(
+                            "Date",
+                            selection: $incomeDate,
+                            in: dateRange, // Reuse existing dateRange
+                            displayedComponents: .date
+                        )
+                    }
+
+                    Section {
+                        Button(action: addIncome) {
+                            Text("Add Income")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.green) // Different color for distinction
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                        .padding()
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                
+                // Display added income (optional, can be enhanced later)
+                List {
+                    Section(header: Text("Recent Income")) {
+                        if incomeEntries.isEmpty {
+                            Text("No income logged yet.")
+                                .foregroundColor(.secondary)
+                        } else {
+                            ForEach(incomeEntries.sorted(by: { $0.date > $1.date })) { entry in // Show most recent first
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(entry.type)
+                                            .font(.headline)
+                                        Text(entry.date, style: .date)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    Text("£\(Int(entry.amount))")
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Section for Monthly Income Totals
+                    Section(header: Text("Monthly Totals")) {
+                        let monthlyTotals = calculateMonthlyIncomeTotals()
+                        if monthlyTotals.isEmpty {
+                            Text("No income logged yet to calculate monthly totals.")
+                                .foregroundColor(.secondary)
+                        } else {
+                            ForEach(monthlyTotals) { monthlyTotal in
+                                HStack {
+                                    Text(monthlyTotal.month)
+                                        .font(.headline)
+                                    Spacer()
+                                    Text("£\(Int(monthlyTotal.totalAmount))")
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                        }
+                    }
+                }
+                .listStyle(InsetGroupedListStyle()) // More modern list style
+                
+                Spacer() // Pushes content to the top
+            }
+            .navigationBarHidden(true) // Hide default navigation bar if custom title is used
+            .toolbar { // Add toolbar for keyboard dismissal
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        hideKeyboard()
+                    }
+                }
+            }
+        }
+    }
+
+    func addIncome() {
+        guard let amount = Double(incomeAmount), amount > 0 else {
+            // Optionally, show an alert to the user that the amount is invalid
+            print("Invalid income amount")
+            return
+        }
+
+        let newEntry = IncomeEntry(type: selectedIncomeType, amount: amount, date: incomeDate)
+        incomeEntries.append(newEntry)
+
+        // Clear form
+        incomeAmount = ""
+        // Optionally reset type and date, or keep them for faster multi-entry
+        // selectedIncomeType = incomeTypes[0]
+        // incomeDate = Date()
+        
+        // Hide keyboard after adding
+        hideKeyboard()
+        
+        // Placeholder for saving income data
+        // PersistenceManager.shared.saveIncomeData(incomeEntries)
+        print("Income entry added. Persistence to be implemented.")
+    }
+
+    func calculateMonthlyIncomeTotals() -> [MonthlyIncomeTotal] {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMMM yyyy" // Format for month and year
+
+        // Group income entries by month
+        let groupedByMonth = Dictionary(grouping: incomeEntries) { entry -> String in
+            return dateFormatter.string(from: entry.date)
+        }
+
+        // Calculate total for each month and create MonthlyIncomeTotal objects
+        var monthlyTotals: [MonthlyIncomeTotal] = []
+        for (month, entries) in groupedByMonth {
+            let totalAmount = entries.reduce(0) { $0 + $1.amount }
+            monthlyTotals.append(MonthlyIncomeTotal(month: month, totalAmount: totalAmount))
+        }
+
+        // Sort by date - this requires converting month string back to date or careful sorting
+        // For simplicity, let's sort by month string for now, but a more robust date sort would be better.
+        // To sort properly, we need to parse month string back to Date, or sort before formatting.
+        
+        // Let's sort after creating MonthlyIncomeTotal by converting month string back to a sortable date
+        monthlyTotals.sort { (total1, total2) -> Bool in
+            guard let date1 = dateFormatter.date(from: total1.month),
+                  let date2 = dateFormatter.date(from: total2.month) else {
+                return false // Or handle error, or sort alphabetically if dates are bad
+            }
+            return date1 > date2 // Most recent month first
+        }
+        
+        return monthlyTotals
     }
 }
 
