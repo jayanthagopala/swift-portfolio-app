@@ -369,11 +369,7 @@ struct ContentView: View {
                 .shadow(radius: 2)
                 .padding()
                 
-                Text("All values based on your latest manual entries")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.bottom)
-                
+                // Removed text as requested                
                 Divider()
                     .padding(.horizontal)
                     .padding(.top)
