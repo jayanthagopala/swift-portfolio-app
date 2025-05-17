@@ -6,42 +6,36 @@
 //
 
 import SwiftUI
-import Charts
 import Foundation
 import Combine
 
 struct AssetCategory {
     let name: String
     let value: Double
-    let change: Double
 }
 
-struct PortfolioDataPoint {
-    let date: Date
-    let value: Double
-}
+
 
 struct ContentView: View {
     // Currency service for exchange rates
     @StateObject private var currencyService = CurrencyService.shared
     
     // Sample data - would be replaced with actual data source
-    @State private var totalAssets = AssetCategory(name: "Total", value: 0, change: 0)
-    @State private var ukAssets = AssetCategory(name: "UK Assets", value: 0, change: 0)
-    @State private var indiaAssets = AssetCategory(name: "India Assets", value: 0, change: 0)
+    @State private var totalAssets = AssetCategory(name: "Total", value: 0)
+    @State private var ukAssets = AssetCategory(name: "UK Assets", value: 0)
+    @State private var indiaAssets = AssetCategory(name: "India Assets", value: 0)
     
     // UK Detailed assets
-    @State private var ukISA = AssetCategory(name: "UK ISA", value: 0, change: 0)
-    @State private var ukPot = AssetCategory(name: "UK Pot", value: 0, change: 0)
-    @State private var ukCoinbase = AssetCategory(name: "UK Coinbase", value: 0, change: 0)
+    @State private var ukISA = AssetCategory(name: "UK ISA", value: 0)
+    @State private var ukPot = AssetCategory(name: "UK Pot", value: 0)
+    @State private var ukCoinbase = AssetCategory(name: "UK Coinbase", value: 0)
     
     // India Detailed assets
-    @State private var indiaShares = AssetCategory(name: "India Shares", value: 0, change: 0)
-    @State private var indiaSmallcase = AssetCategory(name: "India Smallcase", value: 0, change: 0)
-    @State private var indiaMF = AssetCategory(name: "India MF", value: 0, change: 0)
+    @State private var indiaShares = AssetCategory(name: "India Shares", value: 0)
+    @State private var indiaSmallcase = AssetCategory(name: "India Smallcase", value: 0)
+    @State private var indiaMF = AssetCategory(name: "India MF", value: 0)
     
     // New investment form
-    @State private var showAddInvestmentSheet = false
     @State private var investmentAmount: String = ""
     @State private var selectedAssetType: String = "UK ISA"
     @State private var selectedDate = Date()
@@ -72,16 +66,7 @@ struct ContentView: View {
         return formatter
     }()
     
-    // Portfolio growth data - sample data
-    @State private var portfolioHistory: [PortfolioDataPoint] = [
-        PortfolioDataPoint(date: Calendar.current.date(byAdding: .month, value: -6, to: Date())!, value: 0),
-        PortfolioDataPoint(date: Calendar.current.date(byAdding: .month, value: -5, to: Date())!, value: 0),
-        PortfolioDataPoint(date: Calendar.current.date(byAdding: .month, value: -4, to: Date())!, value: 0),
-        PortfolioDataPoint(date: Calendar.current.date(byAdding: .month, value: -3, to: Date())!, value: 0),
-        PortfolioDataPoint(date: Calendar.current.date(byAdding: .month, value: -2, to: Date())!, value: 0),
-        PortfolioDataPoint(date: Calendar.current.date(byAdding: .month, value: -1, to: Date())!, value: 0),
-        PortfolioDataPoint(date: Date(), value: 0)
-    ]
+
     
     // Asset types
     private let assetTypes = ["UK ISA", "UK Pot", "UK Coinbase", "India Shares", "India Smallcase", "India MF"]
@@ -208,66 +193,23 @@ struct ContentView: View {
         return ukAssetsTotal + indiaAssetsTotal
     }
     
-    // Helper to update portfolio history based on asset entries
-    func updatePortfolioHistory() {
-        // Create a map of date to total value across all assets (in GBP)
-        var dateToTotalValue: [Date: Double] = [:]
-        
-        // For each asset, get its history and add values to the corresponding dates
-        for assetType in assetTypes {
-            let history = historyForAsset(assetType)
-            for (date, value) in history {
-                let currentTotal = dateToTotalValue[date] ?? 0
-                // Convert to GBP if it's an Indian asset
-                let valueInGBP = isIndianAsset(assetType) ? value * currencyService.inrToGbpRate : value
-                dateToTotalValue[date] = currentTotal + valueInGBP
-            }
-        }
-        
-        // Sort dates
-        let sortedDates = dateToTotalValue.keys.sorted()
-        
-        // If we have enough data points, update the portfolio history
-        if sortedDates.count >= 2 {
-            // Take the last 7 dates or fewer if we don't have 7
-            let recentDates = Array(sortedDates.suffix(min(7, sortedDates.count)))
-            
-            // Update the portfolio history with these dates and values
-            var newHistory: [PortfolioDataPoint] = []
-            for date in recentDates {
-                let value = dateToTotalValue[date] ?? 0
-                newHistory.append(PortfolioDataPoint(date: date, value: value))
-            }
-            
-            // If we have fewer than 7 data points, pad with the existing points
-            if newHistory.count < 7 {
-                let remainingCount = 7 - newHistory.count
-                let existingFirst = Array(portfolioHistory.prefix(remainingCount))
-                newHistory = existingFirst + newHistory
-            }
-            
-            portfolioHistory = newHistory
-        }
-    }
+
     
     // Helper to update UK and India assets with latest totals
     func updateTotals() {
         // Update the asset categories with calculated values
-        totalAssets = AssetCategory(name: "Total", value: overallTotal, change: 0)
-        ukAssets = AssetCategory(name: "UK Assets", value: ukAssetsTotal, change: 0)
-        indiaAssets = AssetCategory(name: "India Assets", value: indiaAssetsTotal, change: 0)
+        totalAssets = AssetCategory(name: "Total", value: overallTotal)
+        ukAssets = AssetCategory(name: "UK Assets", value: ukAssetsTotal)
+        indiaAssets = AssetCategory(name: "India Assets", value: indiaAssetsTotal)
         
         // Update individual asset categories with their latest values (in native currency)
-        ukISA = AssetCategory(name: "UK ISA", value: latestValueForAsset("UK ISA"), change: 0)
-        ukPot = AssetCategory(name: "UK Pot", value: latestValueForAsset("UK Pot"), change: 0)
-        ukCoinbase = AssetCategory(name: "UK Coinbase", value: latestValueForAsset("UK Coinbase"), change: 0)
+        ukISA = AssetCategory(name: "UK ISA", value: latestValueForAsset("UK ISA"))
+        ukPot = AssetCategory(name: "UK Pot", value: latestValueForAsset("UK Pot"))
+        ukCoinbase = AssetCategory(name: "UK Coinbase", value: latestValueForAsset("UK Coinbase"))
         
-        indiaShares = AssetCategory(name: "India Shares", value: latestValueForAsset("India Shares"), change: 0)
-        indiaSmallcase = AssetCategory(name: "India Smallcase", value: latestValueForAsset("India Smallcase"), change: 0)
-        indiaMF = AssetCategory(name: "India MF", value: latestValueForAsset("India MF"), change: 0)
-        
-        // Update portfolio history
-        updatePortfolioHistory()
+        indiaShares = AssetCategory(name: "India Shares", value: latestValueForAsset("India Shares"))
+        indiaSmallcase = AssetCategory(name: "India Smallcase", value: latestValueForAsset("India Smallcase"))
+        indiaMF = AssetCategory(name: "India MF", value: latestValueForAsset("India MF"))
     }
     
     var body: some View {
