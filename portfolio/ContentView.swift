@@ -9,6 +9,7 @@ import SwiftUI
 import Foundation
 import Combine
 import UIKit
+import Charts
 
 struct AssetCategory {
     let name: String
@@ -292,6 +293,11 @@ struct ContentView: View {
                     }
                 }
             
+            progressionView
+                .tabItem {
+                    Label("Growth", systemImage: "chart.line.uptrend.xyaxis")
+                }
+            
             addInvestmentView
                 .tabItem {
                     Label("Add", systemImage: "plus.circle")
@@ -494,7 +500,587 @@ struct ContentView: View {
         .shadow(radius: 1)
     }
     
-
+    // Progression View for tracking growth over time
+    var progressionView: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                Text("Asset Progression")
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .padding(.top)
+                
+                // Overview chart showing total progression
+                VStack(alignment: .leading) {
+                    Text("Total Portfolio Value Over Time")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    totalProgressionChart
+                        .frame(height: 250)
+                        .padding(.horizontal)
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding(.horizontal)
+                
+                // UK Assets Progression
+                VStack(alignment: .leading) {
+                    Text("UK Assets Progression")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    ukAssetsProgressionChart
+                        .frame(height: 250)
+                        .padding(.horizontal)
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding(.horizontal)
+                
+                // India Assets Progression
+                VStack(alignment: .leading) {
+                    Text("India Assets Progression")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    indiaAssetsProgressionChart
+                        .frame(height: 250)
+                        .padding(.horizontal)
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding(.horizontal)
+                
+                // Total Monthly Growth Table
+                VStack(alignment: .leading) {
+                    Text("Total Monthly Growth")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    monthlyChangeTable
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding(.horizontal)
+                
+                // UK Monthly Growth Table
+                VStack(alignment: .leading) {
+                    Text("UK Assets Monthly Growth")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    ukMonthlyChangeTable
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding(.horizontal)
+                
+                // India Monthly Growth Table
+                VStack(alignment: .leading) {
+                    Text("India Assets Monthly Growth")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    indiaMonthlyChangeTable
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding(.horizontal)
+                
+                // Information
+                Text("Based on the values you've entered for each month")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom)
+            }
+        }
+    }
+    
+    // Helper to get all dates for which we have entries
+    private func getAllDates() -> [Date] {
+        var allDates = Set<Date>()
+        
+        for asset in assetTypes {
+            let history = historyForAsset(asset)
+            for (date, _) in history {
+                allDates.insert(date)
+            }
+        }
+        
+        return Array(allDates).sorted()
+    }
+    
+    // Get total portfolio value at each date
+    private func getTotalValuesByDate() -> [(date: Date, value: Double)] {
+        let dates = getAllDates()
+        var result: [(date: Date, value: Double)] = []
+        
+        for date in dates {
+            var totalValue: Double = 0
+            
+            for asset in assetTypes {
+                let dateString = dateFormatter.string(from: date)
+                if let value = manualEntries[asset]?[dateString] {
+                    // Convert to GBP if needed
+                    let valueInGBP = isIndianAsset(asset) ? value * currencyService.inrToGbpRate : value
+                    totalValue += valueInGBP
+                }
+            }
+            
+            result.append((date: date, value: totalValue))
+        }
+        
+        return result.sorted { $0.date < $1.date }
+    }
+    
+    // Get values by date for UK assets
+    private func getUKValuesByDate() -> [(date: Date, value: Double)] {
+        let dates = getAllDates()
+        var result: [(date: Date, value: Double)] = []
+        
+        for date in dates {
+            var totalValue: Double = 0
+            
+            for asset in assetTypes.filter({ $0.starts(with: "UK") }) {
+                let dateString = dateFormatter.string(from: date)
+                if let value = manualEntries[asset]?[dateString] {
+                    totalValue += value
+                }
+            }
+            
+            result.append((date: date, value: totalValue))
+        }
+        
+        return result.sorted { $0.date < $1.date }
+    }
+    
+    // Get values by date for India assets
+    private func getIndiaValuesByDate() -> [(date: Date, value: Double)] {
+        let dates = getAllDates()
+        var result: [(date: Date, value: Double)] = []
+        
+        for date in dates {
+            var totalValue: Double = 0
+            
+            for asset in assetTypes.filter({ $0.starts(with: "India") }) {
+                let dateString = dateFormatter.string(from: date)
+                if let value = manualEntries[asset]?[dateString] {
+                    // Convert to GBP for consistency
+                    let valueInGBP = value * currencyService.inrToGbpRate
+                    totalValue += valueInGBP
+                }
+            }
+            
+            result.append((date: date, value: totalValue))
+        }
+        
+        return result.sorted { $0.date < $1.date }
+    }
+    
+    // Get monthly changes
+    private func getMonthlyChanges() -> [(month: String, value: Double, percentChange: Double)] {
+        let totalValues = getTotalValuesByDate()
+        var result: [(month: String, value: Double, percentChange: Double)] = []
+        
+        if totalValues.count < 2 {
+            return result
+        }
+        
+        for i in 1..<totalValues.count {
+            let currentValue = totalValues[i].value
+            let previousValue = totalValues[i-1].value
+            let change = currentValue - previousValue
+            let percentChange = previousValue > 0 ? (change / previousValue) * 100 : 0
+            
+            // Format date as month
+            let monthFormatter = DateFormatter()
+            monthFormatter.dateFormat = "MMM yyyy"
+            let monthStr = monthFormatter.string(from: totalValues[i].date)
+            
+            result.append((month: monthStr, value: change, percentChange: percentChange))
+        }
+        
+        return result
+    }
+    
+    // Get monthly changes for UK assets
+    private func getUKMonthlyChanges() -> [(month: String, value: Double, percentChange: Double)] {
+        let ukValues = getUKValuesByDate()
+        var result: [(month: String, value: Double, percentChange: Double)] = []
+        
+        if ukValues.count < 2 {
+            return result
+        }
+        
+        for i in 1..<ukValues.count {
+            let currentValue = ukValues[i].value
+            let previousValue = ukValues[i-1].value
+            let change = currentValue - previousValue
+            let percentChange = previousValue > 0 ? (change / previousValue) * 100 : 0
+            
+            // Format date as month
+            let monthFormatter = DateFormatter()
+            monthFormatter.dateFormat = "MMM yyyy"
+            let monthStr = monthFormatter.string(from: ukValues[i].date)
+            
+            result.append((month: monthStr, value: change, percentChange: percentChange))
+        }
+        
+        return result
+    }
+    
+    // Get monthly changes for India assets
+    private func getIndiaMonthlyChanges() -> [(month: String, value: Double, percentChange: Double)] {
+        let indiaValues = getIndiaValuesByDate()
+        var result: [(month: String, value: Double, percentChange: Double)] = []
+        
+        if indiaValues.count < 2 {
+            return result
+        }
+        
+        for i in 1..<indiaValues.count {
+            let currentValue = indiaValues[i].value
+            let previousValue = indiaValues[i-1].value
+            let change = currentValue - previousValue
+            let percentChange = previousValue > 0 ? (change / previousValue) * 100 : 0
+            
+            // Format date as month
+            let monthFormatter = DateFormatter()
+            monthFormatter.dateFormat = "MMM yyyy"
+            let monthStr = monthFormatter.string(from: indiaValues[i].date)
+            
+            result.append((month: monthStr, value: change, percentChange: percentChange))
+        }
+        
+        return result
+    }
+    
+    // Total progression chart
+    private var totalProgressionChart: some View {
+        let data = getTotalValuesByDate()
+        
+        return Chart {
+            ForEach(data, id: \.date) { item in
+                LineMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(Color.blue.gradient)
+                
+                AreaMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.blue.opacity(0.3), .blue.opacity(0.1)]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                
+                PointMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(.blue)
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading)
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .month)) { value in
+                if let date = value.as(Date.self) {
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel(format: .dateTime.month())
+                }
+            }
+        }
+        .chartYScale(domain: .automatic(includesZero: true))
+    }
+    
+    // UK assets progression chart
+    private var ukAssetsProgressionChart: some View {
+        let data = getUKValuesByDate()
+        
+        return Chart {
+            ForEach(data, id: \.date) { item in
+                LineMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(Color.green.gradient)
+                
+                AreaMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.green.opacity(0.3), .green.opacity(0.1)]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                
+                PointMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(.green)
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading)
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .month)) { value in
+                if let date = value.as(Date.self) {
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel(format: .dateTime.month())
+                }
+            }
+        }
+        .chartYScale(domain: .automatic(includesZero: true))
+    }
+    
+    // India assets progression chart
+    private var indiaAssetsProgressionChart: some View {
+        let data = getIndiaValuesByDate()
+        
+        return Chart {
+            ForEach(data, id: \.date) { item in
+                LineMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(Color.orange.gradient)
+                
+                AreaMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.orange.opacity(0.3), .orange.opacity(0.1)]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                
+                PointMark(
+                    x: .value("Date", item.date),
+                    y: .value("Value", item.value)
+                )
+                .foregroundStyle(.orange)
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading)
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .month)) { value in
+                if let date = value.as(Date.self) {
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel(format: .dateTime.month())
+                }
+            }
+        }
+        .chartYScale(domain: .automatic(includesZero: true))
+    }
+    
+    // Monthly change table
+    private var monthlyChangeTable: some View {
+        let changes = getMonthlyChanges()
+        
+        return VStack {
+            if changes.isEmpty {
+                Text("Add data for multiple months to see growth")
+                    .italic()
+                    .foregroundColor(.secondary)
+                    .padding()
+            } else {
+                HStack {
+                    Text("Month")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(width: 100, alignment: .leading)
+                    
+                    Text("Change")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                    
+                    Text("%")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(width: 80)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemBackground))
+                
+                Divider()
+                
+                ForEach(changes, id: \.month) { change in
+                    HStack {
+                        Text(change.month)
+                            .frame(width: 100, alignment: .leading)
+                        
+                        Text("£\(Int(change.value))")
+                            .foregroundColor(change.value >= 0 ? .green : .red)
+                            .frame(maxWidth: .infinity)
+                        
+                        Text(String(format: "%.1f%%", change.percentChange))
+                            .foregroundColor(change.value >= 0 ? .green : .red)
+                            .frame(width: 80)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    
+                    if change.month != changes.last?.month {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(10)
+    }
+    
+    // Monthly Growth Table
+    private var ukMonthlyChangeTable: some View {
+        let changes = getUKMonthlyChanges()
+        
+        return VStack {
+            if changes.isEmpty {
+                Text("Add data for multiple months to see growth")
+                    .italic()
+                    .foregroundColor(.secondary)
+                    .padding()
+            } else {
+                HStack {
+                    Text("Month")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(width: 100, alignment: .leading)
+                    
+                    Text("Change")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                    
+                    Text("%")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(width: 80)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemBackground))
+                
+                Divider()
+                
+                ForEach(changes, id: \.month) { change in
+                    HStack {
+                        Text(change.month)
+                            .frame(width: 100, alignment: .leading)
+                        
+                        Text("£\(Int(change.value))")
+                            .foregroundColor(change.value >= 0 ? .green : .red)
+                            .frame(maxWidth: .infinity)
+                        
+                        Text(String(format: "%.1f%%", change.percentChange))
+                            .foregroundColor(change.value >= 0 ? .green : .red)
+                            .frame(width: 80)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    
+                    if change.month != changes.last?.month {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(10)
+    }
+    
+    // Monthly Growth Table for India
+    private var indiaMonthlyChangeTable: some View {
+        let changes = getIndiaMonthlyChanges()
+        
+        return VStack {
+            if changes.isEmpty {
+                Text("Add data for multiple months to see growth")
+                    .italic()
+                    .foregroundColor(.secondary)
+                    .padding()
+            } else {
+                HStack {
+                    Text("Month")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(width: 100, alignment: .leading)
+                    
+                    Text("Change (£)")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                    
+                    Text("%")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(width: 80)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemBackground))
+                
+                Divider()
+                
+                ForEach(changes, id: \.month) { change in
+                    HStack {
+                        Text(change.month)
+                            .frame(width: 100, alignment: .leading)
+                        
+                        Text("£\(Int(change.value))")
+                            .foregroundColor(change.value >= 0 ? .green : .red)
+                            .frame(maxWidth: .infinity)
+                        
+                        Text(String(format: "%.1f%%", change.percentChange))
+                            .foregroundColor(change.value >= 0 ? .green : .red)
+                            .frame(width: 80)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    
+                    if change.month != changes.last?.month {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(10)
+    }
     
     // Add Investment View
     var addInvestmentView: some View {

@@ -1,15 +1,24 @@
 # Swift Portfolio App
 
-A personal finance tracking app built with SwiftUI that helps you track your investments and assets across different countries.
+A personal asset tracking app built with SwiftUI that helps you track your investments across different countries and currencies.
 
 ## Features
 
 - Track assets in multiple currencies (GBP, INR)
 - View summaries by country/region (UK, India)
 - Monitor detailed breakdown of individual assets
-- Visualize portfolio growth with interactive charts
-- Add and update investment values for any month
-- Automatic calculation of totals using latest values
+- Add and update asset values with specific dates
+- Automatic exchange rate fetching and conversion
+- Persistence across app reinstalls
+- Support for both light and dark mode with vibrant UI
+
+## Key Components
+
+- **UK Assets**: Track ISA, Pot, and Coinbase holdings in GBP
+- **India Assets**: Track Shares, Smallcase, and Mutual Funds in INR
+- **Manual Data Entry**: Add or update asset values with dates
+- **Currency Conversion**: Automatic conversion between GBP and INR
+- **Data Persistence**: Securely save portfolio data between sessions and app reinstalls
 
 ## Screenshots
 
@@ -29,10 +38,19 @@ A personal finance tracking app built with SwiftUI that helps you track your inv
 
 ## Usage
 
-- Add investments using the "Add" tab
-- Update existing investments using the "Update" option
+- Navigate between Summary and Add tabs using the tab bar
 - View your overall portfolio on the "Summary" tab
-- Monitor your portfolio growth on the "Growth" tab
+- Add or update asset values using the "Add" tab
+- Use the date picker to select specific dates for entries
+- View currency conversions automatically
+
+## Technical Details
+
+The app uses several key technologies:
+- SwiftUI for the user interface
+- Combine for reactive programming
+- FileManager for data persistence
+- URLSession for currency exchange rate fetching
 
 ## License
 
