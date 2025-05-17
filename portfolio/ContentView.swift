@@ -278,6 +278,12 @@ struct ContentView: View {
         indiaMF = AssetCategory(name: "India MF", value: latestValueForAsset("India MF"))
     }
     
+    // Helper to get latest value for the current month for a specific asset
+    private func getLatestValueForCurrentMonth(asset: String) -> Double? {
+        let currentMonthKey = dateString(from: Date())
+        return manualEntries[asset]?[currentMonthKey]
+    }
+    
     var body: some View {
         TabView {
             summaryView
@@ -301,6 +307,11 @@ struct ContentView: View {
             addInvestmentView
                 .tabItem {
                     Label("Add", systemImage: "plus.circle")
+                }
+                .onAppear {
+                    // Reset to current date when tab appears
+                    selectedDate = Date()
+                    updateTotals()
                 }
         }
         .onChange(of: currencyService.gbpToInrRate) { _ in
@@ -1098,6 +1109,24 @@ struct ContentView: View {
                     hideKeyboard()
                 }
             
+            // Current month values summary
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Latest Values for Current Month")
+                    .font(.headline)
+                    .padding(.bottom, 4)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(assetTypes, id: \.self) { asset in
+                            AssetValueCard(asset: asset)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.bottom)
+            }
+            .padding(.horizontal)
+            
             VStack(alignment: .leading, spacing: 4) {
                 Text("Manual Data Entry")
                     .font(.headline)
@@ -1161,6 +1190,45 @@ struct ContentView: View {
                     in: dateRange,
                     displayedComponents: .date
                 )
+                
+                // Show existing value for selected date if available
+                let dateKey = dateString(from: selectedDate)
+                if let existingValue = manualEntries[selectedAssetType]?[dateKey] {
+                    VStack(spacing: 8) {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("Value already exists for this date")
+                                .font(.callout)
+                                .foregroundColor(.orange)
+                            Spacer()
+                        }
+                        
+                        HStack {
+                            Text("Existing Value:")
+                            Spacer()
+                            Text("\(isIndianAsset(selectedAssetType) ? "₹" : "£")\(Int(existingValue))")
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        // If Indian asset, show the GBP equivalent
+                        if isIndianAsset(selectedAssetType) {
+                            HStack {
+                                Text("GBP Equivalent:")
+                                Spacer()
+                                Text("£\(Int(existingValue * currencyService.inrToGbpRate))")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        
+                        Text("Adding a new value will replace the existing one")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(10)
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(8)
+                }
                 
                 // Show informational text with conversion rate if Indian asset
                 if isIndianAsset(selectedAssetType) {
@@ -1319,6 +1387,57 @@ struct ContentView: View {
         updateAmount = ""
         selectedAssetType = "UK ISA"
         selectedDate = Date() // Reset to current date
+    }
+    
+    // Asset value card for current month summary
+    private func AssetValueCard(asset: String) -> some View {
+        let value = getLatestValueForCurrentMonth(asset: asset)
+        let hasValue = value != nil
+        
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(asset)
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            if let value = value {
+                Text("\(isIndianAsset(asset) ? "₹" : "£")\(Int(value))")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                
+                // Show equivalent in the other currency
+                if isIndianAsset(asset) {
+                    Text("£\(Int(value * currencyService.inrToGbpRate))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                Text("No data")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .italic()
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background(
+            Group {
+                if hasValue {
+                    if isIndianAsset(asset) {
+                        indiaGradient.cornerRadius(10)
+                    } else {
+                        ukGradient.cornerRadius(10)
+                    }
+                } else {
+                    Color(.tertiarySystemBackground)
+                }
+            }
+        )
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: hasValue ? 0 : 1)
+        )
     }
 }
 
